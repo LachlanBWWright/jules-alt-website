@@ -40,6 +40,25 @@ function RequireApiKey({ children }: { children: React.ReactNode }) {
           <CardDescription>
             Please enter your API key to continue. This key will be stored in
             your browser's session storage.
+            <br />
+            <br />
+            <a
+              href="https://jules.google.com/settings/api"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 hover:underline"
+            >
+              Get your API key
+            </a>
+            {" • "}
+            <a
+              href="https://github.com/LachlanBWWright/jules-alt-website"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 hover:underline"
+            >
+              GitHub Repository
+            </a>
           </CardDescription>
         </CardHeader>
         <form
@@ -76,7 +95,7 @@ function App() {
   return (
     <SettingsProvider>
       <Toaster position="top-right" offset="60px" />
-      <Router>
+      <Router basename={import.meta.env.BASE_URL}>
         <RequireApiKey>
           <Routes>
             <Route path="/" element={<Dashboard />} />

@@ -56,7 +56,24 @@ export default function Settings() {
           <CardHeader>
             <CardTitle>API Key</CardTitle>
             <CardDescription>
-              Your Jules API key for authentication
+              Your Jules API key for authentication.{" "}
+              <a
+                href="https://jules.google.com/settings/api"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-500 hover:underline"
+              >
+                Get your API key
+              </a>
+              {" • "}
+              <a
+                href="https://github.com/LachlanBWWright/jules-alt-website"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-500 hover:underline"
+              >
+                GitHub Repository
+              </a>
             </CardDescription>
           </CardHeader>
           <CardContent>

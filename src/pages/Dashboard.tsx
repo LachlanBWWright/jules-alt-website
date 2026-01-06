@@ -2,12 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useApiKey } from "@/context/ApiKeyContext";
 import { listSessions, type Session } from "@/services/jules";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Plus, Settings } from "lucide-react";
 
