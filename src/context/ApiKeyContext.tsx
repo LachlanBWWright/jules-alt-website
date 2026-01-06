@@ -1,39 +1,81 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState } from "react";
 
-interface ApiKeyContextType {
+interface SettingsContextType {
   apiKey: string | null;
   setApiKey: (key: string) => void;
   clearApiKey: () => void;
+  pageSize: number;
+  setPageSize: (size: number) => void;
+  truncateDiffs: boolean;
+  setTruncateDiffs: (value: boolean) => void;
 }
 
-const ApiKeyContext = createContext<ApiKeyContextType | undefined>(undefined);
+const SettingsContext = createContext<SettingsContextType | undefined>(
+  undefined,
+);
 
-export function ApiKeyProvider({ children }: { children: React.ReactNode }) {
+export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [apiKey, setApiKeyState] = useState<string | null>(() => {
-    return sessionStorage.getItem('jules_api_key');
+    return localStorage.getItem("jules_api_key");
+  });
+
+  const [pageSize, setPageSizeState] = useState<number>(() => {
+    const stored = localStorage.getItem("jules_page_size");
+    return stored ? parseInt(stored, 10) : 100;
+  });
+
+  const [truncateDiffs, setTruncateDiffsState] = useState<boolean>(() => {
+    const stored = localStorage.getItem("jules_truncate_diffs");
+    return stored !== "false"; // Default to true
   });
 
   const setApiKey = (key: string) => {
-    sessionStorage.setItem('jules_api_key', key);
+    localStorage.setItem("jules_api_key", key);
     setApiKeyState(key);
   };
 
   const clearApiKey = () => {
-    sessionStorage.removeItem('jules_api_key');
+    localStorage.removeItem("jules_api_key");
     setApiKeyState(null);
   };
 
+  const setPageSize = (size: number) => {
+    const validSize = Math.max(1, Math.min(100, size));
+    localStorage.setItem("jules_page_size", validSize.toString());
+    setPageSizeState(validSize);
+  };
+
+  const setTruncateDiffs = (value: boolean) => {
+    localStorage.setItem("jules_truncate_diffs", value.toString());
+    setTruncateDiffsState(value);
+  };
+
   return (
-    <ApiKeyContext.Provider value={{ apiKey, setApiKey, clearApiKey }}>
+    <SettingsContext.Provider
+      value={{
+        apiKey,
+        setApiKey,
+        clearApiKey,
+        pageSize,
+        setPageSize,
+        truncateDiffs,
+        setTruncateDiffs,
+      }}
+    >
       {children}
-    </ApiKeyContext.Provider>
+    </SettingsContext.Provider>
   );
 }
 
+// Keep the old hook name for backwards compatibility
 export function useApiKey() {
-  const context = useContext(ApiKeyContext);
+  const context = useContext(SettingsContext);
   if (context === undefined) {
-    throw new Error('useApiKey must be used within an ApiKeyProvider');
+    throw new Error("useApiKey must be used within a SettingsProvider");
   }
   return context;
+}
+
+export function useSettings() {
+  return useApiKey();
 }
