@@ -93,6 +93,7 @@ export default function SessionView() {
   // tokens[tokens.length - 1] is the furthest forward we've been.
 
   const workerRef = useRef<Worker | null>(null);
+  const catchingUpToastId = useRef<string | number | null>(null);
 
   useEffect(() => {
     workerRef.current = new Worker(
@@ -104,6 +105,21 @@ export default function SessionView() {
       workerRef.current?.terminate();
     };
   }, []);
+
+  // Show toast when catching up
+  useEffect(() => {
+    if (isCatchingUp) {
+      catchingUpToastId.current = toast.loading(
+        "Checking for newer messages...",
+        {
+          position: "top-right",
+        },
+      );
+    } else if (catchingUpToastId.current) {
+      toast.dismiss(catchingUpToastId.current);
+      catchingUpToastId.current = null;
+    }
+  }, [isCatchingUp]);
 
   const processActivities = useCallback(
     (acts: Activity[]): Promise<Activity[]> => {
@@ -880,12 +896,6 @@ export default function SessionView() {
                     }
                   />
                 ))}
-                {isCatchingUp && (
-                  <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground border-t border-muted/20">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Checking for newer messages...
-                  </div>
-                )}
               </>
             )}
           </div>
