@@ -1,10 +1,5 @@
 import React, { useState } from "react";
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
-} from "react-router-dom";
+import { Routes, Route, Navigate, HashRouter } from "react-router-dom";
 import { SettingsProvider, useApiKey } from "@/context/ApiKeyContext";
 import Dashboard from "@/pages/Dashboard";
 import SessionView from "@/pages/SessionView";
@@ -95,7 +90,7 @@ function App() {
   return (
     <SettingsProvider>
       <Toaster position="top-right" offset="60px" />
-      <Router basename={import.meta.env.BASE_URL}>
+      <HashRouter>
         <RequireApiKey>
           <Routes>
             <Route path="/" element={<Dashboard />} />
@@ -106,7 +101,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </RequireApiKey>
-      </Router>
+      </HashRouter>
     </SettingsProvider>
   );
 }

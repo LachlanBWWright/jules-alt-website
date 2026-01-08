@@ -25,7 +25,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, Send, FileCode } from "lucide-react";
+import { Loader2, ArrowLeft, Send, FileCode, ArrowDown } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { ActivityItem } from "@/components/ActivityItem";
 
 export default function SessionView() {
@@ -61,6 +62,20 @@ export default function SessionView() {
   const scrollHeightBeforeRef = useRef(0); // Track scroll height before adding new content
   const scrollTopBeforeRef = useRef(0); // Track scroll top before adding new content
   const shouldRestoreScrollRef = useRef(false); // Flag to trigger scroll restoration
+
+  // Scroll state
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const shouldSnapToBottomRef = useRef(false);
+  const catchingUpRef = useRef(false); // Guard against concurrent catchUp calls
+
+  // Polling progress state
+  const [pollingProgress, setPollingProgress] = useState(0);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
 
   // Perspective: tokens[0] is the start of the session.
   // tokens[tokens.length - 1] is the furthest forward we've been.
@@ -100,6 +115,71 @@ export default function SessionView() {
 
   const sessionName = `sessions/${name}`;
 
+  // Helper to save cache
+  const saveCache = useCallback(
+    (updatedTokens: string[], lastActivityTime?: string) => {
+      const cache = {
+        tokens: updatedTokens,
+        lastActivityTime,
+        lastUpdate: Date.now(),
+      };
+      localStorage.setItem(`jules_session_${name}`, JSON.stringify(cache));
+      // Also save legacy format for backward compat
+      localStorage.setItem(
+        `jules_tokens_${name}`,
+        JSON.stringify(updatedTokens),
+      );
+    },
+    [name],
+  );
+
+  // Load existing cache with validation
+  const loadCache = useCallback(() => {
+    try {
+      const cached = localStorage.getItem(`jules_session_${name}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Validate structure
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          Array.isArray(parsed.tokens) &&
+          parsed.tokens.length > 0 &&
+          parsed.tokens.every((t: unknown) => typeof t === "string")
+        ) {
+          return {
+            tokens: parsed.tokens as string[],
+            lastActivityTime:
+              typeof parsed.lastActivityTime === "string"
+                ? parsed.lastActivityTime
+                : undefined,
+            lastUpdate:
+              typeof parsed.lastUpdate === "number" ? parsed.lastUpdate : 0,
+          };
+        }
+        console.warn("Invalid cache structure, ignoring");
+      }
+      // Fallback to legacy format
+      const legacyTokens = localStorage.getItem(`jules_tokens_${name}`);
+      if (legacyTokens) {
+        const parsed = JSON.parse(legacyTokens);
+        if (
+          Array.isArray(parsed) &&
+          parsed.length > 1 &&
+          parsed.every((t: unknown) => typeof t === "string")
+        ) {
+          return { tokens: parsed as string[], lastUpdate: 0 };
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load session cache:", e);
+      // Clear corrupted cache
+      localStorage.removeItem(`jules_session_${name}`);
+      localStorage.removeItem(`jules_tokens_${name}`);
+    }
+    return null;
+  }, [name]);
+
   const loadData = useCallback(async () => {
     if (!apiKey || !name) return;
     try {
@@ -107,58 +187,113 @@ export default function SessionView() {
       const sessionData = await getSession(apiKey, sessionName);
       setSession(sessionData);
 
-      // Always start from the beginning (empty token) to get full history in order
-      let currentToken: string | undefined = "";
-      let currentIndex = 0;
-      const updatedTokens: string[] = [""];
-      const allActivities: Activity[] = [];
+      const cache = loadCache();
+      const hasValidCache = cache && cache.tokens.length > 1;
 
-      setIsCatchingUp(true);
-      setTopIndex(0);
-      setBottomIndex(0);
-      setHasMoreHistory(false);
+      if (hasValidCache) {
+        // RETURNING VISIT: Start from last cached token (newest known page)
+        console.log("[Load] Using cached tokens, starting from newest");
+        const cachedTokens = cache.tokens;
+        const startIndex = cachedTokens.length - 1;
+        let currentToken: string | undefined = cachedTokens[startIndex];
+        const updatedTokens = [...cachedTokens];
+        const initialActivities: Activity[] = [];
 
-      let isFirstBatch = true;
+        setTopIndex(startIndex);
+        setBottomIndex(startIndex);
+        setHasMoreHistory(startIndex > 0);
+        setTokens(cachedTokens);
 
-      // Fetch all pages from the beginning to get complete history
-      while (true) {
-        const result = await listActivities(
-          apiKey,
-          sessionName,
-          pageSize,
-          currentToken || undefined,
-        );
-        const newActs = await processActivities(result.activities || []);
+        // Force scroll to bottom on initial load
+        shouldSnapToBottomRef.current = true;
+        setIsCatchingUp(true);
 
-        // Append new activities in order
-        allActivities.push(...newActs);
+        // Load from cached position forward to catch new activities
+        let isFirstBatch = true;
+        while (true) {
+          const result = await listActivities(
+            apiKey,
+            sessionName,
+            pageSize,
+            currentToken || undefined,
+          );
+          const newActs = await processActivities(result.activities || []);
 
-        // Update UI progressively
-        setActivities([...allActivities]);
+          initialActivities.push(...newActs);
+          setActivities([...initialActivities]);
 
-        if (isFirstBatch) {
-          setLoading(false); // Switch from full-page loader to content
-          isFirstBatch = false;
-        }
-
-        if (result.nextPageToken) {
-          if (!updatedTokens.includes(result.nextPageToken)) {
-            updatedTokens.push(result.nextPageToken);
+          if (isFirstBatch) {
+            setLoading(false);
+            isFirstBatch = false;
           }
-          currentToken = result.nextPageToken;
-          currentIndex++;
-          setBottomIndex(currentIndex);
-        } else {
-          break;
-        }
-      }
 
-      // Save the complete token list to localStorage
-      setTokens(updatedTokens);
-      localStorage.setItem(
-        `jules_tokens_${name}`,
-        JSON.stringify(updatedTokens),
-      );
+          if (result.nextPageToken) {
+            if (!updatedTokens.includes(result.nextPageToken)) {
+              updatedTokens.push(result.nextPageToken);
+            }
+            currentToken = result.nextPageToken;
+            setBottomIndex(updatedTokens.length - 1);
+          } else {
+            break;
+          }
+        }
+
+        // Save updated cache
+        setTokens(updatedTokens);
+        const lastActivity = initialActivities[initialActivities.length - 1];
+        saveCache(updatedTokens, lastActivity?.createTime);
+
+        setIsCatchingUp(false);
+        setLoading(false);
+      } else {
+        // FRESH VISIT: Load from beginning
+        console.log("[Load] No cache, loading from beginning");
+        let currentToken: string | undefined = "";
+        let currentIndex = 0;
+        const updatedTokens: string[] = [""];
+        const allActivities: Activity[] = [];
+
+        setIsCatchingUp(true);
+        setTopIndex(0);
+        setBottomIndex(0);
+        setHasMoreHistory(false);
+
+        let isFirstBatch = true;
+        shouldSnapToBottomRef.current = true;
+
+        while (true) {
+          const result = await listActivities(
+            apiKey,
+            sessionName,
+            pageSize,
+            currentToken || undefined,
+          );
+          const newActs = await processActivities(result.activities || []);
+
+          allActivities.push(...newActs);
+          setActivities([...allActivities]);
+
+          if (isFirstBatch) {
+            setLoading(false);
+            isFirstBatch = false;
+          }
+
+          if (result.nextPageToken) {
+            if (!updatedTokens.includes(result.nextPageToken)) {
+              updatedTokens.push(result.nextPageToken);
+            }
+            currentToken = result.nextPageToken;
+            currentIndex++;
+            setBottomIndex(currentIndex);
+          } else {
+            break;
+          }
+        }
+
+        setTokens(updatedTokens);
+        const lastActivity = allActivities[allActivities.length - 1];
+        saveCache(updatedTokens, lastActivity?.createTime);
+      }
     } catch (err: unknown) {
       console.error(err);
       setError("Failed to load session data.");
@@ -166,7 +301,15 @@ export default function SessionView() {
       setLoading(false);
       setIsCatchingUp(false);
     }
-  }, [apiKey, name, sessionName, pageSize, processActivities]);
+  }, [
+    apiKey,
+    name,
+    sessionName,
+    pageSize,
+    processActivities,
+    loadCache,
+    saveCache,
+  ]);
 
   // Load more activities (older ones) - Navigates backwards through the token cache
   const loadMore = useCallback(async () => {
@@ -191,6 +334,8 @@ export default function SessionView() {
       scrollHeightBeforeRef.current = scrollContainer?.scrollHeight || 0;
       scrollTopBeforeRef.current = scrollContainer?.scrollTop || 0;
       shouldRestoreScrollRef.current = true;
+      // Do NOT snap to bottom when loading older history
+      shouldSnapToBottomRef.current = false;
 
       setLoadingMore(false);
       loadingMoreRef.current = false;
@@ -222,14 +367,28 @@ export default function SessionView() {
     }
   }, [apiKey, name, loadData]);
 
-  // Restore scroll position after prepending activities (runs synchronously after DOM update)
+  // Restore scroll position after prepending activities OR snap to bottom if needed
   useLayoutEffect(() => {
     if (shouldRestoreScrollRef.current && scrollRef.current) {
+      // Logic for restoring scroll position after loading OLDER messages
       const scrollHeightAfter = scrollRef.current.scrollHeight;
       const heightDelta = scrollHeightAfter - scrollHeightBeforeRef.current;
       scrollRef.current.scrollTop = scrollTopBeforeRef.current + heightDelta;
       shouldRestoreScrollRef.current = false;
-    } else if (
+      return;
+    }
+
+    // Logic for snapping to bottom (for incoming NEW messages)
+    if (shouldSnapToBottomRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      // Only reset after snapping if NOT during initial catch-up
+      // (we want to keep snapping during initial progressive load)
+      if (!isCatchingUp) {
+        shouldSnapToBottomRef.current = false;
+      }
+    }
+
+    if (
       !loading &&
       !loadingMore &&
       !isCatchingUp &&
@@ -250,20 +409,41 @@ export default function SessionView() {
     loadMore,
   ]);
 
-  // Scroll to bottom only on initial load (not when loading more)
-  const initialLoadDone = useRef(false);
+  // Background history loading: after initial load, start loading older pages
+  // This runs in background when user is scrolled near top or content is small
   useEffect(() => {
     if (
-      !loading &&
-      !isCatchingUp &&
-      scrollRef.current &&
-      activities.length > 0 &&
-      !initialLoadDone.current
+      loading ||
+      loadingMore ||
+      isCatchingUp ||
+      !hasMoreHistory ||
+      topIndex === 0
     ) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      initialLoadDone.current = true;
+      return;
     }
-  }, [loading, isCatchingUp, activities.length]);
+
+    const scrollContainer = scrollRef.current;
+    if (!scrollContainer) return;
+
+    // Check if user is within 3 viewport heights of top, or content doesn't fill container
+    const threshold = scrollContainer.clientHeight * 3;
+    const shouldLoadBackground =
+      scrollContainer.scrollTop < threshold ||
+      scrollContainer.scrollHeight <= scrollContainer.clientHeight;
+
+    if (shouldLoadBackground) {
+      console.log("[Background] Auto-loading history");
+      void loadMore();
+    }
+  }, [
+    loading,
+    loadingMore,
+    isCatchingUp,
+    hasMoreHistory,
+    topIndex,
+    loadMore,
+    activities,
+  ]);
 
   // Detect scroll near top and load more
   const handleApprovePlan = async (planId: string) => {
@@ -278,6 +458,7 @@ export default function SessionView() {
       setSession(sessionData);
 
       // Trigger catch-up to find new activities
+      shouldSnapToBottomRef.current = true; // User action, expect new content at bottom
       void catchUp();
     } catch (err: unknown) {
       console.error(err);
@@ -288,11 +469,21 @@ export default function SessionView() {
   };
 
   const catchUp = useCallback(async () => {
-    if (!apiKey) return;
+    if (!apiKey || catchingUpRef.current) return;
+    catchingUpRef.current = true;
     // We start from the current bottom token
     let currentToken: string | undefined = tokens[bottomIndex];
     let currentIndex = bottomIndex;
     const updatedTokens = [...tokens];
+
+    // Check if we are near bottom BEFORE fetching
+    const scrollContainer = scrollRef.current;
+    if (scrollContainer) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+      // If within 100px of bottom, we stick to bottom
+      shouldSnapToBottomRef.current = distanceFromBottom < 100;
+    }
 
     setIsCatchingUp(true);
     while (true) {
@@ -305,7 +496,16 @@ export default function SessionView() {
       const newActs = await processActivities(result.activities || []);
 
       if (newActs.length > 0) {
-        setActivities((prev) => [...prev, ...newActs]);
+        // Deduplicate by activity name to prevent duplicates from concurrent requests
+        setActivities((prev) => {
+          const existingNames = new Set(
+            prev.map((a) => a.name).filter(Boolean),
+          );
+          const uniqueNewActs = newActs.filter(
+            (a) => !a.name || !existingNames.has(a.name),
+          );
+          return [...prev, ...uniqueNewActs];
+        });
       }
 
       if (result.nextPageToken) {
@@ -325,6 +525,7 @@ export default function SessionView() {
       }
     }
     setIsCatchingUp(false);
+    catchingUpRef.current = false;
   }, [
     apiKey,
     tokens,
@@ -345,6 +546,7 @@ export default function SessionView() {
     console.log("[Scroll] Attaching listener", { hasMoreHistory, loadingMore });
 
     const handleScroll = () => {
+      // 1. Detect if we should load more history
       // If within 5x container height of the top, load more history
       const threshold = scrollContainer.clientHeight * 5;
       const shouldLoad =
@@ -358,6 +560,11 @@ export default function SessionView() {
         });
         void loadMore();
       }
+
+      // 2. Detect if we should show "Skip to bottom" button
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+      setShowScrollButton(distanceFromBottom > 300); // Show if >300px from bottom
     };
 
     scrollContainer.addEventListener("scroll", handleScroll);
@@ -367,6 +574,15 @@ export default function SessionView() {
     };
   }, [hasMoreHistory, loadingMore, loadMore, loading, topIndex]);
 
+  const scrollToBottom = () => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!prompt.trim() || !apiKey) return;
@@ -375,6 +591,7 @@ export default function SessionView() {
       setSending(true);
       await sendMessage(apiKey, sessionName, prompt);
       setPrompt("");
+      shouldSnapToBottomRef.current = true; // User sent message, snap to bottom
       await catchUp();
     } catch (err: unknown) {
       console.error(err);
@@ -385,17 +602,47 @@ export default function SessionView() {
   };
 
   // Polling for updates
+  const POLL_INTERVAL = 5000; // 5 seconds
+  const PROGRESS_STEP_INTERVAL = 50; // Update progress every 50ms
+
   useEffect(() => {
-    if (!apiKey || !name || loading || isCatchingUp) return;
+    if (!apiKey || !name || loading || isCatchingUp) {
+      // Clear any running intervals if conditions not met
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      setPollingProgress(0);
+      return;
+    }
 
     // Don't poll if session is in a final state
     const finalStates = ["COMPLETED", "FAILED"];
     if (session?.state && finalStates.includes(session.state)) {
+      setPollingProgress(0);
       return;
     }
 
-    const intervalId = setInterval(async () => {
+    // Start progress animation
+    const totalSteps = POLL_INTERVAL / PROGRESS_STEP_INTERVAL;
+    let currentStep = 0;
+
+    progressIntervalRef.current = setInterval(() => {
+      currentStep++;
+      setPollingProgress(Math.min((currentStep / totalSteps) * 100, 100));
+    }, PROGRESS_STEP_INTERVAL);
+
+    // Polling interval
+    pollingIntervalRef.current = setInterval(async () => {
       try {
+        // Reset progress
+        currentStep = 0;
+        setPollingProgress(0);
+
         // Update session state
         const updatedSession = await getSession(apiKey, sessionName);
         setSession(updatedSession);
@@ -405,9 +652,18 @@ export default function SessionView() {
       } catch (err) {
         console.error("Polling error:", err);
       }
-    }, 5000); // Poll every 5 seconds
+    }, POLL_INTERVAL);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+    };
   }, [
     apiKey,
     name,
@@ -458,7 +714,7 @@ export default function SessionView() {
   const stateDisplay = getStateDisplay(session?.state);
 
   return (
-    <div className="flex flex-col h-screen w-full px-6 py-4 bg-background">
+    <div className="flex flex-col h-screen w-full px-6 py-4 bg-background relative">
       <div className="flex items-center justify-between gap-4 mb-4">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Button
@@ -487,8 +743,14 @@ export default function SessionView() {
           {error}
         </div>
       )}
+      {/* Polling Progress Indicator */}
+      {!loading &&
+        session?.state &&
+        !["COMPLETED", "FAILED"].includes(session.state) && (
+          <Progress value={pollingProgress} className="h-1 mb-2" />
+        )}
 
-      <Card className="flex-1 flex flex-col overflow-hidden mb-4">
+      <Card className="flex-1 flex flex-col overflow-hidden mb-4 relative">
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin" />
@@ -556,6 +818,17 @@ export default function SessionView() {
               </>
             )}
           </div>
+        )}
+
+        {/* Floating Scroll Logic */}
+        {showScrollButton && (
+          <Button
+            size="icon"
+            className="absolute bottom-6 right-6 rounded-full shadow-lg opacity-90 hover:opacity-100 z-10"
+            onClick={scrollToBottom}
+          >
+            <ArrowDown className="h-5 w-5" />
+          </Button>
         )}
       </Card>
 

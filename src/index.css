@@ -52,6 +52,37 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Always show scrollbar - macOS compatible */
+  .overflow-y-auto,
+  .overflow-y-scroll {
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
+
+  /* Force scrollbar visibility on webkit browsers (Chrome, Safari, Edge) */
+  .overflow-y-auto::-webkit-scrollbar,
+  .overflow-y-scroll::-webkit-scrollbar {
+    width: 8px;
+    background-color: transparent;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar-track,
+  .overflow-y-scroll::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+    border-radius: 4px;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar-thumb,
+  .overflow-y-scroll::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar-thumb:hover,
+  .overflow-y-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
   .dark {
     --background: 0 0% 3.9%;
     --foreground: 0 0% 98%;

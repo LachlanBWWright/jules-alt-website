@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useApiKey } from "@/context/ApiKeyContext";
 import { listSessions, type Session } from "@/services/jules";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Plus, Settings } from "lucide-react";
 
@@ -12,6 +13,15 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  // Polling progress state
+  const [pollingProgress, setPollingProgress] = useState(0);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
 
   const loadSessions = useCallback(async () => {
     if (!apiKey) return;
@@ -31,6 +41,59 @@ export default function Dashboard() {
   useEffect(() => {
     void loadSessions();
   }, [loadSessions]);
+
+  // Polling for session list updates
+  const POLL_INTERVAL = 10000; // 10 seconds
+  const PROGRESS_STEP_INTERVAL = 100; // Update progress every 100ms
+
+  useEffect(() => {
+    if (!apiKey || loading) {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      setPollingProgress(0);
+      return;
+    }
+
+    // Start progress animation
+    const totalSteps = POLL_INTERVAL / PROGRESS_STEP_INTERVAL;
+    let currentStep = 0;
+
+    progressIntervalRef.current = setInterval(() => {
+      currentStep++;
+      setPollingProgress(Math.min((currentStep / totalSteps) * 100, 100));
+    }, PROGRESS_STEP_INTERVAL);
+
+    // Polling interval
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        // Reset progress
+        currentStep = 0;
+        setPollingProgress(0);
+
+        const data = await listSessions(apiKey);
+        setSessions(data);
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, POLL_INTERVAL);
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+    };
+  }, [apiKey, loading]);
 
   // Helper to format state for display
   const getStateDisplay = (state?: string) => {
@@ -88,6 +151,9 @@ export default function Dashboard() {
           </Button>
         </div>
       </div>
+
+      {/* Polling Progress Indicator */}
+      {!loading && <Progress value={pollingProgress} className="h-1 mb-4" />}
 
       {error && (
         <div className="bg-destructive/15 text-destructive p-4 rounded-md mb-6">
