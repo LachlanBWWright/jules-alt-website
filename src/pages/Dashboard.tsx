@@ -219,84 +219,92 @@ export default function Dashboard() {
               No sessions found. Create one to get started!
             </p>
           ) : (
-            sessions.map((session) => {
-              const stateDisplay = getStateDisplay(session.state);
-              const githubUrl = getGitHubUrl(session);
-              const prUrl = getPullRequestUrl(session);
-              const julesUrl = session.url;
-              return (
-                <Card
-                  key={session.name}
-                  className="cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => navigate(`/${session.name}`)}
-                >
-                  <div className="flex items-center justify-between p-4 py-3 gap-4">
-                    <div className="flex-1 min-w-0">
-                      <h3
-                        className="text-sm font-medium truncate"
-                        title={session.title}
+            [...sessions]
+              .sort((a, b) => {
+                const timeA = a.updateTime || a.createTime || "";
+                const timeB = b.updateTime || b.createTime || "";
+                return timeB.localeCompare(timeA); // Newest first
+              })
+              .map((session) => {
+                const stateDisplay = getStateDisplay(session.state);
+                const githubUrl = getGitHubUrl(session);
+                const prUrl = getPullRequestUrl(session);
+                const julesUrl = session.url;
+                return (
+                  <Card
+                    key={session.name}
+                    className="cursor-pointer hover:shadow-md transition-shadow"
+                    onClick={() => navigate(`/${session.name}`)}
+                  >
+                    <div className="flex items-center justify-between p-4 py-3 gap-4">
+                      <div className="flex-1 min-w-0">
+                        <h3
+                          className="text-sm font-medium truncate"
+                          title={session.title}
+                        >
+                          {session.title || "Untitled Session"}
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {session.updateTime || session.createTime
+                            ? new Date(
+                                session.updateTime ?? session.createTime ?? "",
+                              ).toLocaleString()
+                            : "No date"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {githubUrl && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Open GitHub Repository"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open(githubUrl, "_blank");
+                            }}
+                          >
+                            <Github className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {prUrl && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Open Pull Request"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open(prUrl, "_blank");
+                            }}
+                          >
+                            <GitPullRequest className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {julesUrl && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Open in Jules"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open(julesUrl, "_blank");
+                            }}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                      <span
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${stateDisplay.className}`}
                       >
-                        {session.title || "Untitled Session"}
-                      </h3>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {session.createTime
-                          ? new Date(session.createTime).toLocaleString()
-                          : "No date"}
-                      </p>
+                        {stateDisplay.label}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      {githubUrl && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Open GitHub Repository"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(githubUrl, "_blank");
-                          }}
-                        >
-                          <Github className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      {prUrl && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Open Pull Request"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(prUrl, "_blank");
-                          }}
-                        >
-                          <GitPullRequest className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      {julesUrl && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Open in Jules"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(julesUrl, "_blank");
-                          }}
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                    </div>
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${stateDisplay.className}`}
-                    >
-                      {stateDisplay.label}
-                    </span>
-                  </div>
-                </Card>
-              );
-            })
+                  </Card>
+                );
+              })
           )}
         </div>
       )}

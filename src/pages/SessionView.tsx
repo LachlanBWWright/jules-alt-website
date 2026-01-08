@@ -870,7 +870,7 @@ export default function SessionView() {
                     session={session}
                     time={
                       act.createTime
-                        ? new Date(act.createTime).toLocaleTimeString()
+                        ? new Date(act.createTime).toLocaleString()
                         : ""
                     }
                     approvingPlan={approvingPlan}
