@@ -1,15 +1,28 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useApiKey } from "@/context/ApiKeyContext";
-import { listSessions, type Session } from "@/services/jules";
+import {
+  listSessions,
+  listSources,
+  type Session,
+  type Source,
+} from "@/services/jules";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Plus, Settings } from "lucide-react";
+import {
+  Loader2,
+  Plus,
+  Settings,
+  Github,
+  ExternalLink,
+  GitPullRequest,
+} from "lucide-react";
 
 export default function Dashboard() {
   const { apiKey } = useApiKey();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -27,8 +40,12 @@ export default function Dashboard() {
     if (!apiKey) return;
     try {
       setLoading(true);
-      const data = await listSessions(apiKey);
-      setSessions(data);
+      const [sessionData, sourceData] = await Promise.all([
+        listSessions(apiKey),
+        listSources(apiKey),
+      ]);
+      setSessions(sessionData);
+      setSources(sourceData);
       setError(null);
     } catch (err: unknown) {
       console.error(err);
@@ -37,6 +54,36 @@ export default function Dashboard() {
       setLoading(false);
     }
   }, [apiKey]);
+
+  // Build a map from source name to Source for O(1) lookup
+  const sourceMap = useMemo(() => {
+    const map = new Map<string, Source>();
+    for (const source of sources) {
+      map.set(source.name, source);
+    }
+    return map;
+  }, [sources]);
+
+  // Helper to get GitHub URL for a session
+  const getGitHubUrl = (session: Session): string | null => {
+    const sourceName = session.sourceContext?.source;
+    if (!sourceName) return null;
+    const source = sourceMap.get(sourceName);
+    if (!source?.githubRepo) return null;
+    return `https://github.com/${source.githubRepo.owner}/${source.githubRepo.repo}`;
+  };
+
+  // Helper to get PR URL for a session
+  const getPullRequestUrl = (session: Session): string | null => {
+    const outputs = session.outputs;
+    if (!outputs || outputs.length === 0) return null;
+    for (const output of outputs) {
+      if (output.pullRequest?.url) {
+        return output.pullRequest.url;
+      }
+    }
+    return null;
+  };
 
   useEffect(() => {
     void loadSessions();
@@ -174,6 +221,9 @@ export default function Dashboard() {
           ) : (
             sessions.map((session) => {
               const stateDisplay = getStateDisplay(session.state);
+              const githubUrl = getGitHubUrl(session);
+              const prUrl = getPullRequestUrl(session);
+              const julesUrl = session.url;
               return (
                 <Card
                   key={session.name}
@@ -193,6 +243,50 @@ export default function Dashboard() {
                           ? new Date(session.createTime).toLocaleString()
                           : "No date"}
                       </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {githubUrl && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Open GitHub Repository"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.open(githubUrl, "_blank");
+                          }}
+                        >
+                          <Github className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {prUrl && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Open Pull Request"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.open(prUrl, "_blank");
+                          }}
+                        >
+                          <GitPullRequest className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {julesUrl && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Open in Jules"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.open(julesUrl, "_blank");
+                          }}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                     <span
                       className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${stateDisplay.className}`}

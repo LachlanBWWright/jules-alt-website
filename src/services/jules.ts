@@ -30,6 +30,16 @@ export interface SourceContext {
   githubRepoContext?: GitHubRepoContext;
 }
 
+export interface PullRequest {
+  url?: string;
+  title?: string;
+  description?: string;
+}
+
+export interface SessionOutput {
+  pullRequest?: PullRequest;
+}
+
 export interface Session {
   name: string;
   id?: string;
@@ -42,6 +52,7 @@ export interface Session {
   updateTime?: string;
   state?: string;
   url?: string;
+  outputs?: SessionOutput[];
 }
 
 export interface PlanStep {
@@ -129,11 +140,35 @@ const getClient = (apiKey: string) => {
   return client;
 };
 
-export const listSources = async (apiKey: string) => {
-  const response = await getClient(apiKey).get<{ sources: Source[] }>(
-    "/sources",
-  );
-  return response.data.sources || [];
+export const listSources = async (apiKey: string, pageSize: number = 100) => {
+  const allSources: Source[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const response = await getClient(apiKey).get<{
+      sources?: Source[];
+      nextPageToken?: string;
+    }>("/sources", {
+      params: {
+        pageSize,
+        ...(pageToken ? { pageToken } : {}),
+      },
+    });
+
+    if (response.data.sources) {
+      allSources.push(...response.data.sources);
+    }
+    pageToken = response.data.nextPageToken;
+  } while (pageToken);
+
+  return allSources;
+};
+
+export const getSource = async (apiKey: string, name: string) => {
+  // name is full resource name "sources/..."
+  const url = name.startsWith("sources/") ? `/${name}` : `/sources/${name}`;
+  const response = await getClient(apiKey).get<Source>(url);
+  return response.data;
 };
 
 export const listSessions = async (apiKey: string) => {
@@ -183,12 +218,13 @@ export const sendMessage = async (
 export const approvePlan = async (
   apiKey: string,
   sessionName: string,
-  planId: string,
+  _planId: string,
 ) => {
   const url = sessionName.startsWith("sessions/")
     ? `/${sessionName}:approvePlan`
     : `/sessions/${sessionName}:approvePlan`;
-  const response = await getClient(apiKey).post(url, { planId });
+  // API docs: "The request body must be empty"
+  const response = await getClient(apiKey).post(url, {});
   return response.data;
 };
 

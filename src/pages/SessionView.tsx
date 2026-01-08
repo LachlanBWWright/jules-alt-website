@@ -10,11 +10,13 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useSettings } from "@/context/ApiKeyContext";
 import {
   getSession,
+  getSource,
   sendMessage,
   approvePlan,
   listActivities,
   type Activity,
   type Session,
+  type Source,
 } from "@/services/jules";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +27,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, Send, FileCode, ArrowDown } from "lucide-react";
+import {
+  Loader2,
+  ArrowLeft,
+  Send,
+  FileCode,
+  ArrowDown,
+  Github,
+  ExternalLink,
+  GitPullRequest,
+} from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { ActivityItem } from "@/components/ActivityItem";
 
@@ -34,6 +45,7 @@ export default function SessionView() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
+  const [source, setSource] = useState<Source | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -186,6 +198,19 @@ export default function SessionView() {
       setLoading(true);
       const sessionData = await getSession(apiKey, sessionName);
       setSession(sessionData);
+
+      // Fetch source for GitHub repo info
+      if (sessionData.sourceContext?.source) {
+        try {
+          const sourceData = await getSource(
+            apiKey,
+            sessionData.sourceContext.source,
+          );
+          setSource(sourceData);
+        } catch (e) {
+          console.warn("Failed to fetch source:", e);
+        }
+      }
 
       const cache = loadCache();
       const hasValidCache = cache && cache.tokens.length > 1;
@@ -728,6 +753,52 @@ export default function SessionView() {
           <h1 className="text-xl font-bold truncate min-w-0">
             {session?.title || "Loading..."}
           </h1>
+        </div>
+        <div className="flex items-center gap-1">
+          {source?.githubRepo && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="Open GitHub Repository"
+              onClick={() => {
+                const gh = source.githubRepo;
+                if (gh)
+                  window.open(
+                    `https://github.com/${gh.owner}/${gh.repo}`,
+                    "_blank",
+                  );
+              }}
+            >
+              <Github className="h-4 w-4" />
+            </Button>
+          )}
+          {session?.outputs?.some((o) => o.pullRequest?.url) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="Open Pull Request"
+              onClick={() => {
+                const prUrl = session?.outputs?.find((o) => o.pullRequest?.url)
+                  ?.pullRequest?.url;
+                if (prUrl) window.open(prUrl, "_blank");
+              }}
+            >
+              <GitPullRequest className="h-4 w-4" />
+            </Button>
+          )}
+          {session?.url && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="Open in Jules"
+              onClick={() => window.open(session.url, "_blank")}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+          )}
         </div>
         {session && (
           <span
